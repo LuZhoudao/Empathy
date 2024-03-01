@@ -102,7 +102,6 @@ def get_QA():
     csv_lst = os.listdir(csv_path)
     makedir('../Pairs')
     for csv_file in csv_lst:
-        print(csv_file)
         result_path = os.path.join(csv_path, csv_file)
         interview = pd.read_csv(result_path)
         interview = interview.drop("Unnamed: 0", axis=1)

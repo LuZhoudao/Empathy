@@ -13,12 +13,17 @@ import pandas as pd
 def find_QA(conversation, messages):
     message = conversation
     messages.append({"role": "user", "content": message})
+
     response = openai.ChatCompletion.create(
         model="gpt-4-0125-preview",
-        messages=messages
+        messages=messages,
+        temperature=1.0,
     )
-    reply = response["choices"][0]["message"]["content"]
+    reply = ''
+    for choice in response.choices:
+        reply += choice.message.content
 
+    print(reply)
     return reply
 
     # print(reply)
@@ -37,7 +42,7 @@ def split_results(result):
 def split(conversation, result, interviewee, interviewer):
     line_lst = conversation.split("\n")
     line_lst = line_lst[:-1]
-    print(line_lst)
+
     return_lst = []
     #print(len(line_lst))
     #print(len(result))
@@ -48,8 +53,10 @@ def split(conversation, result, interviewee, interviewer):
             jump = 0
         elif line[3] == " ":
             jump = 1
-        else:
+        elif line[4] == " ":
             jump = 2
+        else:
+            jump = 3
         start_time = line[jump+4:jump+17]
         end_time = line[jump+21:jump+33]
         speaker = line[jump+36:jump+46]
@@ -154,12 +161,15 @@ def findSpeakers(handle_path):
         else:
             interviewer = match_er.group(2)
             speaker_path_interviewer_dic[video].append(interviewer.strip())
+
+    print(speaker_path_interviewee_dic, speaker_path_interviewer_dic)
     return speaker_path_interviewee_dic, speaker_path_interviewer_dic
 
 
-def assign_QA(api_key):
+def assign_QA(key):
     # Set up OpenAI API credentials and max tokens
-    openai.api_key = api_key
+    openai.api_key = os.getenv('OPENAI_KEY', default=key)
+    openai.api_base = "https://ai-yyds.com/v1"
     max_tokens = 40000
 
     # Directory path
@@ -179,12 +189,11 @@ def assign_QA(api_key):
 
         interviewee = interviewee_path_dic[subdir]
         interviewer = interviewer_path_dic[subdir]
-
         messages = []
         messages.append({"role": "system", "content": "You can help to distinguish questions and answers in text."})
 
         # speaker 1,speakerii谁是interviewee,停顿多少次，gpt-3.5-turbo-16k-0613
-        prompt = f"This is a text message of a Q&A interview with a CEO, {interviewee[0]} is the interviewee, {interviewer[]} is the interviewer. Each line is a quote from the interviewer/interviewee. For each quote, please judge whether it is a question, answer, or nothing. 'Question' is a question posed by the interviewer to the interviewee, typically asking the CEO's opinion on the company's growth or the market; 'Answer' is the interviewees response based on the interviewer's question, generally a specific opinion on something;'Nothing' is the message unrelated to questions and answers. Each line please returns a value, 'Question', 'Answer' or 'Nothing'. lines of {interviewee} cannot return 'Question', lines of {interviewer} cannot return 'Answer'!  There is an example output: 1. Question, 2. Nothing, 3. Answer, 4. Answer, 5. Answer, 6. Answer. Return as many responses as there are lines. Please do not return to other formats"
+        prompt = f"This is a text message of a Q&A interview with a CEO, {interviewee[0]} is the interviewee, {interviewer[0]} is the interviewer. Each line is a quote from the interviewer/interviewee. For each quote, please judge whether it is a question, answer, or nothing. 'Question' is a question posed by the interviewer to the interviewee, typically asking the CEO's opinion on the company's growth or the market; 'Answer' is the interviewees response based on the interviewer's question, generally a specific opinion on something;'Nothing' is the message unrelated to questions and answers. Each line please returns a value, 'Question', 'Answer' or 'Nothing'. lines of {interviewee} cannot return 'Question', lines of {interviewer} cannot return 'Answer'!  There is an example output: 1. Question, 2. Nothing, 3. Answer, 4. Answer, 5. Answer, 6. Answer. Return as many responses as there are lines. Please do not return to other formats"
         # [00:01:010.67 --> 00:01:013.51] [SPEAKER_02]  Well, I'm glad that you said it's a turnaround because that's
         # exactly how I view it. output: Question: [00:01:007.07 --> 00:01:010.29] [SPEAKER_01]  So what's first on
         # the list in terms of trying to turn this company around for you? Answer: [00:01:010.67 --> 00:01:013.51] [
@@ -199,15 +208,16 @@ def assign_QA(api_key):
         # do not return to other formats" Check if it's a directory
         if os.path.isdir(subdir_path):
             original_path = os.path.join(subdir_path, 'capspeaker.txt')
+            new_conversation = []
             with open(original_path, 'r') as file:
                 conversation = file.readlines()
                 for index in range(len(conversation)):
-                    conversation[i] = f"{index + 1}. {conversation[index]}"
+                    new_conversation.append(f"{index + 1}. {conversation[index]}")
 
                 file.close()
 
             with open(f"{subdir_path}/capspeaker1.txt", 'w') as file:
-                file.writelines(conversation)
+                file.writelines(new_conversation)
                 file.close()
 
             file_path = os.path.join(subdir_path, 'capspeaker1.txt')
@@ -221,10 +231,14 @@ def assign_QA(api_key):
                 # print(len(tokens))
 
                 result = find_QA(truncated_text, messages)
+                with open(f"{subdir_path}/QA.txt", 'w') as file2:
+                    file2.writelines(result)
+                    file2.close()
                 handled_result = split_results(result)
                 char = split(conversation, handled_result, interviewee, interviewer)
                 if char is None:
                     continue
+
                 char.to_csv(f"{result_path}/{subdir}.csv")
 
         # Check if the maximum rate has been reached
